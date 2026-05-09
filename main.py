@@ -95,6 +95,16 @@ def add_rider(name, specs):
             [name, *specs],
         )
 
+
+def update_rider(rider_id, specs):
+    assignments = ", ".join(f"{field} = ?" for field in RIDER_FIELDS)
+    with rider_db_connection() as conn:
+        conn.execute(
+            f"UPDATE riders SET {assignments} WHERE id = ?",
+            [*specs, rider_id],
+        )
+
+
 def intp(xval, df, xcol, ycol):
     return np.interp([xval], df[xcol], df[ycol])
 
@@ -195,6 +205,11 @@ if Calc == "Female Team Sprint":
         r2 = rider_inputs(rider_names[1], f"2_{rider_2_id}", rider_defaults[1])
         r3 = rider_inputs(rider_names[2], f"3_{rider_3_id}", rider_defaults[2])
         submitted = st.form_submit_button("Update Specs")
+        if submitted:
+            update_rider(rider_1_id, r1)
+            update_rider(rider_2_id, r2)
+            update_rider(rider_3_id, r3)
+            st.success("Updated selected rider specs in the database.")
 
     (seat_max_RPM_1, seat_max_torque_1, seat_CdA_1, stand_max_RPM_1, stand_max_torque_1, stand_CdA_1, total_mass_1, sprocket_1, chainring_1, seat_height_1) = r1
     (seat_max_RPM_2, seat_max_torque_2, seat_CdA_2, stand_max_RPM_2, stand_max_torque_2, stand_CdA_2, total_mass_2, sprocket_2, chainring_2, seat_height_2) = r2
