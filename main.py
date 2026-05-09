@@ -105,6 +105,10 @@ def update_rider(rider_id, specs):
         )
 
 
+def max_power_watts(max_rpm, max_torque):
+    return max_rpm * max_torque * math.pi / 120
+
+
 def intp(xval, df, xcol, ycol):
     return np.interp([xval], df[xcol], df[ycol])
 
@@ -152,15 +156,19 @@ if Calc == "Female Team Sprint":
 
     def rider_inputs(name, kn, d):
         st.subheader(f"{name} specs")
-        c1, c2, c3, c4, c5, c6 = st.columns(6)
-        v = [
-            c1.number_input("Seated Max RPM:",    min_value=0.01, max_value=500.0,  value=float(d[0]), key=f"{kn}_1"),
-            c2.number_input("Seated Max Torque:", min_value=0.01, max_value=500.0,  value=float(d[1]), key=f"{kn}_2"),
-            c3.number_input("Seated CdA:",        min_value=0.0001, max_value=2.0,  value=float(d[2]), step=1e-4, format="%.4f", key=f"{kn}_3"),
-            c4.number_input("Standing Max RPM:",  min_value=0.01, max_value=500.0,  value=float(d[3]), key=f"{kn}_4"),
-            c5.number_input("Standing Max Torque:", min_value=0.01, max_value=500.0, value=float(d[4]), key=f"{kn}_5"),
-            c6.number_input("Standing CdA:",      min_value=0.0,  max_value=20.0,   value=float(d[5]), step=1e-4, format="%.4f", key=f"{kn}_6"),
-        ]
+        c1, c2, c3, c4 = st.columns(4)
+        seat_max_rpm = c1.number_input("Seated Max Cadence (RPM):", min_value=0.01, max_value=500.0, value=float(d[0]), key=f"{kn}_1")
+        seat_max_torque = c2.number_input("Seated Max Torque:", min_value=0.01, max_value=500.0, value=float(d[1]), key=f"{kn}_2")
+        c3.metric("Seated Max Power", f"{max_power_watts(seat_max_rpm, seat_max_torque):,.0f} W")
+        seat_cda = c4.number_input("Seated CdA:", min_value=0.0001, max_value=2.0, value=float(d[2]), step=1e-4, format="%.4f", key=f"{kn}_3")
+
+        c1, c2, c3, c4 = st.columns(4)
+        stand_max_rpm = c1.number_input("Standing Max Cadence (RPM):", min_value=0.01, max_value=500.0, value=float(d[3]), key=f"{kn}_4")
+        stand_max_torque = c2.number_input("Standing Max Torque:", min_value=0.01, max_value=500.0, value=float(d[4]), key=f"{kn}_5")
+        c3.metric("Standing Max Power", f"{max_power_watts(stand_max_rpm, stand_max_torque):,.0f} W")
+        stand_cda = c4.number_input("Standing CdA:", min_value=0.0, max_value=20.0, value=float(d[5]), step=1e-4, format="%.4f", key=f"{kn}_6")
+
+        v = [seat_max_rpm, seat_max_torque, seat_cda, stand_max_rpm, stand_max_torque, stand_cda]
         c1, c2, c3, c4 = st.columns(4)
         v += [
             c1.number_input("Total Mass:",  min_value=40.0, max_value=150.0, value=float(d[6]), step=0.1, format="%.1f", key=f"{kn}_7"),
@@ -171,21 +179,20 @@ if Calc == "Female Team Sprint":
         return v
 
     with st.expander("New Rider"):
-        with st.form("new_rider_form", clear_on_submit=True):
-            new_name = st.text_input("Rider Name:", key="new_rider_name")
-            new_specs = rider_inputs("New Rider", "new_rider", DEFAULT_RIDERS["Petch"])
-            add_new_rider = st.form_submit_button("Add Rider")
-            if add_new_rider:
-                clean_name = new_name.strip()
-                if not clean_name:
-                    st.error("Enter a rider name before adding.")
-                else:
-                    try:
-                        add_rider(clean_name, new_specs)
-                        st.success(f"Added {clean_name} to the rider database.")
-                        st.rerun()
-                    except sqlite3.IntegrityError:
-                        st.error(f"A rider named {clean_name} already exists.")
+        new_name = st.text_input("Rider Name:", key="new_rider_name")
+        new_specs = rider_inputs("New Rider", "new_rider", DEFAULT_RIDERS["Petch"])
+        add_new_rider = st.button("Add Rider")
+        if add_new_rider:
+            clean_name = new_name.strip()
+            if not clean_name:
+                st.error("Enter a rider name before adding.")
+            else:
+                try:
+                    add_rider(clean_name, new_specs)
+                    st.success(f"Added {clean_name} to the rider database.")
+                    st.rerun()
+                except sqlite3.IntegrityError:
+                    st.error(f"A rider named {clean_name} already exists.")
 
     with st.sidebar:
         st.subheader("Global specs")
@@ -200,16 +207,14 @@ if Calc == "Female Team Sprint":
         pl_to_trans           = st.number_input("Distance from Pursuit Line to Transition:", min_value=0.0, max_value=90.0, value=31.25)
         transition_length     = st.number_input("Transition length:",       min_value=0.0, max_value=90.0, value=10.00)
 
-    with st.form("my_form"):
-        r1 = rider_inputs(rider_names[0], f"1_{rider_1_id}", rider_defaults[0])
-        r2 = rider_inputs(rider_names[1], f"2_{rider_2_id}", rider_defaults[1])
-        r3 = rider_inputs(rider_names[2], f"3_{rider_3_id}", rider_defaults[2])
-        submitted = st.form_submit_button("Update Specs")
-        if submitted:
-            update_rider(rider_1_id, r1)
-            update_rider(rider_2_id, r2)
-            update_rider(rider_3_id, r3)
-            st.success("Updated selected rider specs in the database.")
+    r1 = rider_inputs(rider_names[0], f"1_{rider_1_id}", rider_defaults[0])
+    r2 = rider_inputs(rider_names[1], f"2_{rider_2_id}", rider_defaults[1])
+    r3 = rider_inputs(rider_names[2], f"3_{rider_3_id}", rider_defaults[2])
+    if st.button("Update Specs"):
+        update_rider(rider_1_id, r1)
+        update_rider(rider_2_id, r2)
+        update_rider(rider_3_id, r3)
+        st.success("Updated selected rider specs in the database.")
 
     (seat_max_RPM_1, seat_max_torque_1, seat_CdA_1, stand_max_RPM_1, stand_max_torque_1, stand_CdA_1, total_mass_1, sprocket_1, chainring_1, seat_height_1) = r1
     (seat_max_RPM_2, seat_max_torque_2, seat_CdA_2, stand_max_RPM_2, stand_max_torque_2, stand_CdA_2, total_mass_2, sprocket_2, chainring_2, seat_height_2) = r2
