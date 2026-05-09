@@ -154,18 +154,22 @@ if Calc == "Female Team Sprint":
     rider_names = [rider["name"] for rider in selected_riders]
     rider_defaults = [rider["specs"] for rider in selected_riders]
 
+    def readonly_power_input(container, label, key, watts):
+        st.session_state[key] = f"{watts:,.0f} W"
+        container.text_input(label, key=key, disabled=True)
+
     def rider_inputs(name, kn, d):
         st.subheader(f"{name} specs")
         c1, c2, c3, c4 = st.columns(4)
         seat_max_rpm = c1.number_input("Seated Max Cadence (RPM):", min_value=0.01, max_value=500.0, value=float(d[0]), key=f"{kn}_1")
         seat_max_torque = c2.number_input("Seated Max Torque:", min_value=0.01, max_value=500.0, value=float(d[1]), key=f"{kn}_2")
-        c3.metric("Seated Max Power", f"{max_power_watts(seat_max_rpm, seat_max_torque):,.0f} W")
+        readonly_power_input(c3, "Seated Max Power:", f"{kn}_seat_power", max_power_watts(seat_max_rpm, seat_max_torque))
         seat_cda = c4.number_input("Seated CdA:", min_value=0.0001, max_value=2.0, value=float(d[2]), step=1e-4, format="%.4f", key=f"{kn}_3")
 
         c1, c2, c3, c4 = st.columns(4)
         stand_max_rpm = c1.number_input("Standing Max Cadence (RPM):", min_value=0.01, max_value=500.0, value=float(d[3]), key=f"{kn}_4")
         stand_max_torque = c2.number_input("Standing Max Torque:", min_value=0.01, max_value=500.0, value=float(d[4]), key=f"{kn}_5")
-        c3.metric("Standing Max Power", f"{max_power_watts(stand_max_rpm, stand_max_torque):,.0f} W")
+        readonly_power_input(c3, "Standing Max Power:", f"{kn}_stand_power", max_power_watts(stand_max_rpm, stand_max_torque))
         stand_cda = c4.number_input("Standing CdA:", min_value=0.0, max_value=20.0, value=float(d[5]), step=1e-4, format="%.4f", key=f"{kn}_6")
 
         v = [seat_max_rpm, seat_max_torque, seat_cda, stand_max_rpm, stand_max_torque, stand_cda]
