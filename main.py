@@ -1,7 +1,8 @@
 ﻿#!/usr/bin/env python
 # coding: utf-8
 
-import math, datetime
+import math, datetime, sqlite3
+from pathlib import Path
 import pandas as pd
 import numpy as np
 import streamlit as st
@@ -15,6 +16,85 @@ st.set_page_config(page_title='TS Modelling Tool', page_icon=":bike:", layout="w
 st.header("Modelling Tool")
 update = datetime.date.today() + pd.DateOffset(hour=12)
 
+RIDER_DB = Path(__file__).with_name("riders.db")
+RIDER_FIELDS = [
+    "seat_max_rpm",
+    "seat_max_torque",
+    "seat_cda",
+    "stand_max_rpm",
+    "stand_max_torque",
+    "stand_cda",
+    "total_mass",
+    "sprocket",
+    "chainring",
+    "seat_height",
+]
+DEFAULT_RIDERS = {
+    "Petch": [235, 207, 0.2050, 240, 223, 0.2563, 71.9, 15, 54, 0.96],
+    "Shaane": [233, 253, 0.2340, 227, 289, 0.2925, 91.8, 15, 62, 1.04],
+    "Ellesse": [238, 202, 0.2180, 217, 270, 0.2725, 86.9, 15, 63, 1.01],
+}
+
+
+def rider_db_connection():
+    return sqlite3.connect(RIDER_DB)
+
+
+def init_rider_db():
+    with rider_db_connection() as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS riders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                seat_max_rpm REAL NOT NULL,
+                seat_max_torque REAL NOT NULL,
+                seat_cda REAL NOT NULL,
+                stand_max_rpm REAL NOT NULL,
+                stand_max_torque REAL NOT NULL,
+                stand_cda REAL NOT NULL,
+                total_mass REAL NOT NULL,
+                sprocket INTEGER NOT NULL,
+                chainring INTEGER NOT NULL,
+                seat_height REAL NOT NULL
+            )
+            """
+        )
+        for name, specs in DEFAULT_RIDERS.items():
+            conn.execute(
+                f"""
+                INSERT OR IGNORE INTO riders (name, {", ".join(RIDER_FIELDS)})
+                VALUES ({", ".join(["?"] * (len(RIDER_FIELDS) + 1))})
+                """,
+                [name, *specs],
+            )
+
+
+def load_riders():
+    with rider_db_connection() as conn:
+        rows = conn.execute(
+            f"SELECT id, name, {', '.join(RIDER_FIELDS)} FROM riders ORDER BY name"
+        ).fetchall()
+    return [
+        {
+            "id": row[0],
+            "name": row[1],
+            "specs": list(row[2:]),
+        }
+        for row in rows
+    ]
+
+
+def add_rider(name, specs):
+    with rider_db_connection() as conn:
+        conn.execute(
+            f"""
+            INSERT INTO riders (name, {", ".join(RIDER_FIELDS)})
+            VALUES ({", ".join(["?"] * (len(RIDER_FIELDS) + 1))})
+            """,
+            [name, *specs],
+        )
+
 def intp(xval, df, xcol, ycol):
     return np.interp([xval], df[xcol], df[ycol])
 
@@ -22,20 +102,43 @@ calcs = ["Female Team Sprint"]
 Calc = st.selectbox("Select Model:", calcs, key="Calc_selector")
 
 if Calc == "Female Team Sprint":
-    order = ["Petch, Shaane, Ellesse", "Shaane, Petch, Ellesse"]
-    Order = st.selectbox("Select Order:", order, key="Order_selector")
+    init_rider_db()
+    riders = load_riders()
+    rider_lookup = {rider["id"]: rider for rider in riders}
 
-    # Default specs: [seat_RPM, seat_torque, seat_CdA, stand_RPM, stand_torque, stand_CdA, mass, sprocket, chainring, seat_height]
-    PETCH   = [235, 207, 0.2050, 240, 223, 0.2563, 71.9, 15, 54, 0.96]
-    SHAANE  = [233, 253, 0.2340, 227, 289, 0.2925, 91.8, 15, 62, 1.04]
-    ELLESSE = [238, 202, 0.2180, 217, 270, 0.2725, 86.9, 15, 63, 1.01]
+    st.subheader("Team order")
+    if len(riders) < 3:
+        st.error("Add at least three riders before running the team sprint model.")
+        st.stop()
 
-    if Order == order[0]:
-        rider_names = ["Petch", "Shaane", "Ellesse"]
-        rider_defaults = [PETCH, SHAANE, ELLESSE]
-    else:
-        rider_names = ["Shaane", "Petch", "Ellesse"]
-        rider_defaults = [SHAANE, PETCH, ELLESSE]
+    rider_ids = [rider["id"] for rider in riders]
+    default_ids = [
+        next((rider["id"] for rider in riders if rider["name"] == name), rider_ids[0])
+        for name in ("Petch", "Shaane", "Ellesse")
+    ]
+
+    def rider_label(rider_id):
+        return rider_lookup[rider_id]["name"]
+
+    def selected_rider(container, label, options, default_id, key):
+        current_id = st.session_state.get(key, default_id)
+        if current_id not in options:
+            current_id = default_id if default_id in options else options[0]
+            st.session_state[key] = current_id
+        return container.selectbox(label, options, index=options.index(current_id), format_func=rider_label, key=key)
+
+    c1, c2, c3 = st.columns(3)
+    rider_1_id = selected_rider(c1, "Rider 1:", rider_ids, default_ids[0], "rider_1_selector")
+    rider_2_options = [rider_id for rider_id in rider_ids if rider_id != rider_1_id]
+    rider_2_default = default_ids[1] if default_ids[1] in rider_2_options else rider_2_options[0]
+    rider_2_id = selected_rider(c2, "Rider 2:", rider_2_options, rider_2_default, "rider_2_selector")
+    rider_3_options = [rider_id for rider_id in rider_ids if rider_id not in (rider_1_id, rider_2_id)]
+    rider_3_default = default_ids[2] if default_ids[2] in rider_3_options else rider_3_options[0]
+    rider_3_id = selected_rider(c3, "Rider 3:", rider_3_options, rider_3_default, "rider_3_selector")
+
+    selected_riders = [rider_lookup[rider_id] for rider_id in (rider_1_id, rider_2_id, rider_3_id)]
+    rider_names = [rider["name"] for rider in selected_riders]
+    rider_defaults = [rider["specs"] for rider in selected_riders]
 
     def rider_inputs(name, kn, d):
         st.subheader(f"{name} specs")
@@ -57,6 +160,23 @@ if Calc == "Female Team Sprint":
         ]
         return v
 
+    with st.expander("New Rider"):
+        with st.form("new_rider_form", clear_on_submit=True):
+            new_name = st.text_input("Rider Name:", key="new_rider_name")
+            new_specs = rider_inputs("New Rider", "new_rider", DEFAULT_RIDERS["Petch"])
+            add_new_rider = st.form_submit_button("Add Rider")
+            if add_new_rider:
+                clean_name = new_name.strip()
+                if not clean_name:
+                    st.error("Enter a rider name before adding.")
+                else:
+                    try:
+                        add_rider(clean_name, new_specs)
+                        st.success(f"Added {clean_name} to the rider database.")
+                        st.rerun()
+                    except sqlite3.IntegrityError:
+                        st.error(f"A rider named {clean_name} already exists.")
+
     with st.sidebar:
         st.subheader("Global specs")
         air_density           = st.number_input("Air Density:",             min_value=0.001, max_value=3.2,   value=1.168, step=1e-3, format="%.3f", key="4_1")
@@ -71,9 +191,9 @@ if Calc == "Female Team Sprint":
         transition_length     = st.number_input("Transition length:",       min_value=0.0, max_value=90.0, value=10.00)
 
     with st.form("my_form"):
-        r1 = rider_inputs(rider_names[0], "1", rider_defaults[0])
-        r2 = rider_inputs(rider_names[1], "2", rider_defaults[1])
-        r3 = rider_inputs(rider_names[2], "3", rider_defaults[2])
+        r1 = rider_inputs(rider_names[0], f"1_{rider_1_id}", rider_defaults[0])
+        r2 = rider_inputs(rider_names[1], f"2_{rider_2_id}", rider_defaults[1])
+        r3 = rider_inputs(rider_names[2], f"3_{rider_3_id}", rider_defaults[2])
         submitted = st.form_submit_button("Update Specs")
 
     (seat_max_RPM_1, seat_max_torque_1, seat_CdA_1, stand_max_RPM_1, stand_max_torque_1, stand_CdA_1, total_mass_1, sprocket_1, chainring_1, seat_height_1) = r1
