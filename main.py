@@ -536,13 +536,18 @@ if Calc == "Female Team Sprint":
     p2_qt = {d: qt(d, df_p2) for d in dists_p2}
     p3_qt = {d: qt(d, df_p3) for d in dists_p3}
 
-    split_options = [62.5, 125.0, 250.0]
-    split_distance = st.selectbox(
+    split_options = [
+        ("1/4 lap", track_circumference / 4),
+        ("1/2 lap", track_circumference / 2),
+        ("Whole lap", float(track_circumference)),
+    ]
+    split_col, _ = st.columns([1, 3])
+    split_label = split_col.selectbox(
         "Split distance:",
-        split_options,
-        format_func=lambda d: f"{d:g} m",
-        key="summary_split_distance",
+        [label for label, _ in split_options],
+        key="summary_split_distance_mode",
     )
+    split_distance = dict(split_options)[split_label]
 
     def split_distances(split, max_distance):
         count = int(max_distance // split)
@@ -550,25 +555,22 @@ if Calc == "Female Team Sprint":
 
     def split_time(end_dist, split, df_px, max_distance):
         if end_dist > max_distance:
-            return None
+            return 0
         start_dist = round(end_dist - split, 3)
         start_time = 0 if start_dist == 0 else qt(start_dist, df_px)
         return round(qt(end_dist, df_px) - start_time, 3)
 
-    split_rows = []
+    split_df = pd.DataFrame([1, 2, 3], columns=["Time_split"])
     max_split_distance = 750
     for end_dist in split_distances(split_distance, max_split_distance):
         start_dist = round(end_dist - split_distance, 3)
-        split_rows.append(
-            {
-                "Split": f"{start_dist:g}-{end_dist:g} m",
-                f"Rider 1 ({rider_names[0]})": split_time(end_dist, split_distance, df_p1, 250),
-                f"Rider 2 ({rider_names[1]})": split_time(end_dist, split_distance, df_p2, 500),
-                f"Rider 3 ({rider_names[2]})": split_time(end_dist, split_distance, df_p3, 750),
-            }
-        )
+        split_df[f"{start_dist:g}-{end_dist:g}"] = [
+            split_time(end_dist, split_distance, df_p1, 250),
+            split_time(end_dist, split_distance, df_p2, 500),
+            split_time(end_dist, split_distance, df_p3, 750),
+        ]
     st.write("Time splits")
-    st.dataframe(pd.DataFrame(split_rows), use_container_width=False)
+    st.dataframe(split_df, use_container_width=False)
 
     df_time = pd.DataFrame([1, 2, 3], columns=["Time"])
     for d in dists_p1:
