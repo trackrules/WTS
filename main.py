@@ -109,6 +109,24 @@ def max_power_watts(max_rpm, max_torque):
     return max_rpm * max_torque * math.pi / 120
 
 
+def torque_from_power(max_rpm, max_power):
+    return max_power * 120 / (max_rpm * math.pi)
+
+
+def sync_power_from_torque(rpm_key, torque_key, power_key):
+    st.session_state[power_key] = max_power_watts(
+        st.session_state[rpm_key],
+        st.session_state[torque_key],
+    )
+
+
+def sync_torque_from_power(rpm_key, torque_key, power_key):
+    st.session_state[torque_key] = torque_from_power(
+        st.session_state[rpm_key],
+        st.session_state[power_key],
+    )
+
+
 def intp(xval, df, xcol, ycol):
     return np.interp([xval], df[xcol], df[ycol])
 
@@ -154,22 +172,67 @@ if Calc == "Female Team Sprint":
     rider_names = [rider["name"] for rider in selected_riders]
     rider_defaults = [rider["specs"] for rider in selected_riders]
 
-    def readonly_power_input(container, label, key, watts):
-        st.session_state[key] = f"{watts:,.0f} W"
-        container.text_input(label, key=key, disabled=True)
+    def number_input_with_default(container, label, key, default, **kwargs):
+        if key in st.session_state:
+            return container.number_input(label, key=key, **kwargs)
+        return container.number_input(label, value=default, key=key, **kwargs)
+
+    def power_linked_inputs(row, label_prefix, kn, rpm_idx, torque_idx, defaults):
+        rpm_key = f"{kn}_{rpm_idx}"
+        torque_key = f"{kn}_{torque_idx}"
+        power_key = f"{kn}_{label_prefix.lower()}_power"
+        power_default = max_power_watts(float(defaults[rpm_idx - 1]), float(defaults[torque_idx - 1]))
+
+        rpm = number_input_with_default(
+            row[0],
+            f"{label_prefix} Max Cadence (RPM):",
+            key=rpm_key,
+            default=float(defaults[rpm_idx - 1]),
+            min_value=0.01,
+            max_value=500.0,
+            on_change=sync_power_from_torque,
+            args=(rpm_key, torque_key, power_key),
+        )
+        torque = number_input_with_default(
+            row[1],
+            f"{label_prefix} Max Torque:",
+            key=torque_key,
+            default=float(defaults[torque_idx - 1]),
+            min_value=0.01,
+            max_value=500.0,
+            format="%.2f",
+            on_change=sync_power_from_torque,
+            args=(rpm_key, torque_key, power_key),
+        )
+        power_max = max_power_watts(float(st.session_state.get(rpm_key, rpm)), 500.0)
+        current_power = st.session_state.get(power_key, power_default)
+        try:
+            current_power = float(current_power)
+        except (TypeError, ValueError):
+            current_power = power_default
+        st.session_state[power_key] = min(max(current_power, 0.01), power_max)
+        number_input_with_default(
+            row[2],
+            f"{label_prefix} Max Power:",
+            key=power_key,
+            default=power_default,
+            min_value=0.01,
+            max_value=power_max,
+            step=1.0,
+            format="%.0f",
+            on_change=sync_torque_from_power,
+            args=(rpm_key, torque_key, power_key),
+        )
+        return rpm, torque
 
     def rider_inputs(name, kn, d):
         st.subheader(f"{name} specs")
         c1, c2, c3, c4 = st.columns(4)
-        seat_max_rpm = c1.number_input("Seated Max Cadence (RPM):", min_value=0.01, max_value=500.0, value=float(d[0]), key=f"{kn}_1")
-        seat_max_torque = c2.number_input("Seated Max Torque:", min_value=0.01, max_value=500.0, value=float(d[1]), key=f"{kn}_2")
-        readonly_power_input(c3, "Seated Max Power:", f"{kn}_seat_power", max_power_watts(seat_max_rpm, seat_max_torque))
+        seat_max_rpm, seat_max_torque = power_linked_inputs((c1, c2, c3), "Seated", kn, 1, 2, d)
         seat_cda = c4.number_input("Seated CdA:", min_value=0.0001, max_value=2.0, value=float(d[2]), step=1e-4, format="%.4f", key=f"{kn}_3")
 
         c1, c2, c3, c4 = st.columns(4)
-        stand_max_rpm = c1.number_input("Standing Max Cadence (RPM):", min_value=0.01, max_value=500.0, value=float(d[3]), key=f"{kn}_4")
-        stand_max_torque = c2.number_input("Standing Max Torque:", min_value=0.01, max_value=500.0, value=float(d[4]), key=f"{kn}_5")
-        readonly_power_input(c3, "Standing Max Power:", f"{kn}_stand_power", max_power_watts(stand_max_rpm, stand_max_torque))
+        stand_max_rpm, stand_max_torque = power_linked_inputs((c1, c2, c3), "Standing", kn, 4, 5, d)
         stand_cda = c4.number_input("Standing CdA:", min_value=0.0, max_value=20.0, value=float(d[5]), step=1e-4, format="%.4f", key=f"{kn}_6")
 
         v = [seat_max_rpm, seat_max_torque, seat_cda, stand_max_rpm, stand_max_torque, stand_cda]
